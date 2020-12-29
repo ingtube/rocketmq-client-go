@@ -455,12 +455,16 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 	})
 	var sleepTime time.Duration
 	pq := request.pq
+	var done = make(chan struct{}, 1)
+	defer func() {
+		done <- struct{}{}
+	}()
 	go primitive.WithRecover(func() {
 		for {
 			select {
-			case <-pc.done:
-				rlog.Info("push consumer close pullMessage.", map[string]interface{}{
-					rlog.LogKeyConsumerGroup: pc.consumerGroup,
+			case <-done:
+				rlog.Debug("pullMessage quited, so stop task", map[string]interface{}{
+					rlog.LogKeyPullRequest: request.String(),
 				})
 				return
 			default:
