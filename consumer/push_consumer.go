@@ -455,10 +455,9 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 	})
 	var sleepTime time.Duration
 	pq := request.pq
-	var done = make(chan struct{}, 1)
-	defer func() {
-		done <- struct{}{}
-	}()
+	var done = make(chan struct{})
+	defer close(done)
+	
 	go primitive.WithRecover(func() {
 		for {
 			select {
