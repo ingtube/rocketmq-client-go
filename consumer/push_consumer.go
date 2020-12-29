@@ -455,12 +455,15 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 	})
 	var sleepTime time.Duration
 	pq := request.pq
+	var done = make(chan struct{})
+	defer close(done)
+
 	go primitive.WithRecover(func() {
 		for {
 			select {
-			case <-pc.done:
-				rlog.Info("push consumer close pullMessage.", map[string]interface{}{
-					rlog.LogKeyConsumerGroup: pc.consumerGroup,
+			case <-done:
+				rlog.Debug("pullMessage quited, so stop task", map[string]interface{}{
+					rlog.LogKeyPullRequest: request.String(),
 				})
 				return
 			default:
@@ -510,7 +513,7 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 		}
 
 		cachedMessageSizeInMiB := int(pq.cachedMsgSize / Mb)
-		if pq.cachedMsgCount > pc.option.PullThresholdForQueue {
+		if int64(pq.msgCache.Size()) > pc.option.PullThresholdForQueue {
 			if pc.queueFlowControlTimes%1000 == 0 {
 				rlog.Warning("the cached message count exceeds the threshold, so do flow control", map[string]interface{}{
 					"PullThresholdForQueue": pc.option.PullThresholdForQueue,
@@ -520,23 +523,6 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 					"size(MiB)":             cachedMessageSizeInMiB,
 					"flowControlTimes":      pc.queueFlowControlTimes,
 					rlog.LogKeyPullRequest:  request.String(),
-				})
-			}
-			pc.queueFlowControlTimes++
-			sleepTime = _PullDelayTimeWhenFlowControl
-			goto NEXT
-		}
-
-		if cachedMessageSizeInMiB > pc.option.PullThresholdSizeForQueue {
-			if pc.queueFlowControlTimes%1000 == 0 {
-				rlog.Warning("the cached message size exceeds the threshold, so do flow control", map[string]interface{}{
-					"PullThresholdSizeForQueue": pc.option.PullThresholdSizeForQueue,
-					"minOffset":                 pq.Min(),
-					"maxOffset":                 pq.Max(),
-					"count":                     pq.msgCache,
-					"size(MiB)":                 cachedMessageSizeInMiB,
-					"flowControlTimes":          pc.queueFlowControlTimes,
-					rlog.LogKeyPullRequest:      request.String(),
 				})
 			}
 			pc.queueFlowControlTimes++
