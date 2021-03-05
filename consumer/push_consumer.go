@@ -709,7 +709,17 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 }
 
 func (pc *pushConsumer) correctTagsOffset(pr *PullRequest) {
-	// TODO
+	pq := pr.pq
+	// 先判断 减少锁竞争
+	if pq.LastConsumeTime().Before(time.Now().Add(-time.Second * 10)) {
+		lock := pc.queueLock.fetchLock(*pr.mq)
+		lock.Lock()
+		defer lock.Unlock()
+		if pq.Min() == -1 && pq.MinOrderlyCache() == -1 {
+			pc.storage.update(pr.mq, pr.nextOffset, true)
+		}
+		pq.UpdateLastConsumeTime()
+	}
 }
 
 func (pc *pushConsumer) sendMessageBack(brokerName string, msg *primitive.MessageExt, delayLevel int) bool {

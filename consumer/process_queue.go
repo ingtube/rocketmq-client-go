@@ -164,8 +164,12 @@ func (pq *processQueue) makeMessageToCosumeAgain(messages ...*primitive.MessageE
 }
 
 func (pq *processQueue) removeMessage(messages ...*primitive.MessageExt) int64 {
-	result := int64(-1)
 	pq.mutex.Lock()
+	defer pq.mutex.Unlock()
+	return pq.removeMessageWithOutLock(messages...)
+}
+func (pq *processQueue) removeMessageWithOutLock(messages ...*primitive.MessageExt) int64 {
+	result := int64(-1)
 	pq.UpdateLastConsumeTime()
 	if !pq.msgCache.Empty() {
 		result = pq.queueOffsetMax + 1
@@ -186,7 +190,6 @@ func (pq *processQueue) removeMessage(messages ...*primitive.MessageExt) int64 {
 		first, _ := pq.msgCache.Min()
 		result = first.(int64)
 	}
-	pq.mutex.Unlock()
 	return result
 }
 
@@ -265,6 +268,7 @@ func (pq *processQueue) takeMessages(number int) []*primitive.MessageExt {
 	result := make([]*primitive.MessageExt, number)
 	i := 0
 	pq.mutex.Lock()
+	defer pq.mutex.Unlock()
 	for ; i < number; i++ {
 		k, v := pq.msgCache.Min()
 		if v == nil {
@@ -272,9 +276,8 @@ func (pq *processQueue) takeMessages(number int) []*primitive.MessageExt {
 		}
 		result[i] = v.(*primitive.MessageExt)
 		pq.consumingMsgOrderlyTreeMap.Put(k, v)
-		pq.msgCache.Remove(k)
 	}
-	pq.mutex.Unlock()
+	pq.removeMessageWithOutLock(result[:i]...)
 	return result[:i]
 }
 
