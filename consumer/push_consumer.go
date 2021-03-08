@@ -686,12 +686,14 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 		case primitive.PullNoNewMsg:
 			rlog.Debug(fmt.Sprintf("Topic: %s, QueueId: %d no more msg, current offset: %d, next offset: %d",
 				request.mq.Topic, request.mq.QueueId, pullRequest.QueueOffset, result.NextBeginOffset), nil)
+
+			request.nextOffset = result.NextBeginOffset
+			pc.correctTagsOffset(request)
 		case primitive.PullNoMsgMatched:
 			rlog.Debug(fmt.Sprintf("Topic: %s, QueueId: %d no msg match, current offset: %d, next offset: %d",
 				request.mq.Topic, request.mq.QueueId, pullRequest.QueueOffset, result.NextBeginOffset), nil)
 
 			request.nextOffset = result.NextBeginOffset
-
 			pc.correctTagsOffset(request)
 		case primitive.PullOffsetIllegal:
 			rlog.Warning("the pull request offset illegal", map[string]interface{}{
@@ -715,11 +717,13 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 func (pc *pushConsumer) correctTagsOffset(pr *PullRequest) {
 	pq := pr.pq
 	// 先判断 减少锁竞争
-	if pq.LastConsumeTime().Before(time.Now().Add(-time.Second * 10)) {
+	if pq.LastConsumeTime().Before(time.Now().Add(-time.Second)) {
+		// make sure consumeOrderly consumer not running
 		lock := pc.queueLock.fetchLock(*pr.mq)
 		lock.Lock()
 		defer lock.Unlock()
 
+		// make sure no message is consuming
 		if pq.Min() == -1 && pq.MinOrderlyCache() == -1 {
 			pc.storage.update(pr.mq, pr.nextOffset, true)
 		}
