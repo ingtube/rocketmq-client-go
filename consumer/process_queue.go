@@ -343,11 +343,6 @@ func (pq *processQueue) commit() int64 {
 	if iter != nil {
 		offset = iter.(int64)
 	}
-	pq.cachedMsgCount -= int64(pq.consumingMsgOrderlyTreeMap.Size())
-	pq.consumingMsgOrderlyTreeMap.Each(func(key interface{}, value interface{}) {
-		msg := value.(*primitive.MessageExt)
-		pq.cachedMsgSize -= int64(len(msg.Body))
-	})
 	pq.consumingMsgOrderlyTreeMap.Clear()
 	return offset + 1
 }
