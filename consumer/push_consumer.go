@@ -687,7 +687,11 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 			rlog.Debug(fmt.Sprintf("Topic: %s, QueueId: %d no more msg, current offset: %d, next offset: %d",
 				request.mq.Topic, request.mq.QueueId, pullRequest.QueueOffset, result.NextBeginOffset), nil)
 		case primitive.PullNoMsgMatched:
+			rlog.Debug(fmt.Sprintf("Topic: %s, QueueId: %d no msg match, current offset: %d, next offset: %d",
+				request.mq.Topic, request.mq.QueueId, pullRequest.QueueOffset, result.NextBeginOffset), nil)
+
 			request.nextOffset = result.NextBeginOffset
+
 			pc.correctTagsOffset(request)
 		case primitive.PullOffsetIllegal:
 			rlog.Warning("the pull request offset illegal", map[string]interface{}{
@@ -715,9 +719,11 @@ func (pc *pushConsumer) correctTagsOffset(pr *PullRequest) {
 		lock := pc.queueLock.fetchLock(*pr.mq)
 		lock.Lock()
 		defer lock.Unlock()
+
 		if pq.Min() == -1 && pq.MinOrderlyCache() == -1 {
 			pc.storage.update(pr.mq, pr.nextOffset, true)
 		}
+
 		pq.UpdateLastConsumeTime()
 	}
 }

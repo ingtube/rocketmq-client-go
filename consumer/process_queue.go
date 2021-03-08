@@ -166,6 +166,7 @@ func (pq *processQueue) makeMessageToCosumeAgain(messages ...*primitive.MessageE
 func (pq *processQueue) removeMessage(messages ...*primitive.MessageExt) int64 {
 	pq.mutex.Lock()
 	defer pq.mutex.Unlock()
+
 	return pq.removeMessageWithOutLock(messages...)
 }
 func (pq *processQueue) removeMessageWithOutLock(messages ...*primitive.MessageExt) int64 {
