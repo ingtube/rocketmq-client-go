@@ -749,6 +749,13 @@ func (pc *pushConsumer) sendMessageBack(brokerName string, msg *primitive.Messag
 	}
 	_, err := pc.client.InvokeSync(context.Background(), brokerAddr, pc.buildSendBackRequest(msg, delayLevel), 3*time.Second)
 	if err != nil {
+		rlog.Error("sendMessageBack err", map[string]interface{}{
+			"msg":        msg,
+			"brokerName": brokerName,
+			"delayLevel": delayLevel,
+			"brokerAddr": brokerAddr,
+			"err":        err.Error(),
+		})
 		return false
 	}
 	return true
