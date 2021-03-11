@@ -519,7 +519,7 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 		}
 
 		cachedMessageSizeInMiB := int(pq.cachedMsgSize / Mb)
-		if int64(pq.msgCache.Size()) > pc.option.PullThresholdForQueue {
+		if pq.cachedMsgCount > pc.option.PullThresholdForQueue {
 			if pc.queueFlowControlTimes%1000 == 0 {
 				rlog.Warning("the cached message count exceeds the threshold, so do flow control", map[string]interface{}{
 					"PullThresholdForQueue": pc.option.PullThresholdForQueue,
@@ -529,6 +529,23 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 					"size(MiB)":             cachedMessageSizeInMiB,
 					"flowControlTimes":      pc.queueFlowControlTimes,
 					rlog.LogKeyPullRequest:  request.String(),
+				})
+			}
+			pc.queueFlowControlTimes++
+			sleepTime = _PullDelayTimeWhenFlowControl
+			goto NEXT
+		}
+
+		if cachedMessageSizeInMiB > pc.option.PullThresholdSizeForQueue {
+			if pc.queueFlowControlTimes%1000 == 0 {
+				rlog.Warning("the cached message size exceeds the threshold, so do flow control", map[string]interface{}{
+					"PullThresholdSizeForQueue": pc.option.PullThresholdSizeForQueue,
+					"minOffset":                 pq.Min(),
+					"maxOffset":                 pq.Max(),
+					"count":                     pq.cachedMsgCount,
+					"size(MiB)":                 cachedMessageSizeInMiB,
+					"flowControlTimes":          pc.queueFlowControlTimes,
+					rlog.LogKeyPullRequest:      request.String(),
 				})
 			}
 			pc.queueFlowControlTimes++
