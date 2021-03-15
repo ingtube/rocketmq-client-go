@@ -730,6 +730,16 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 
 func (pc *pushConsumer) correctTagsOffset(pr *PullRequest) {
 	if atomic.LoadInt64(&pr.pq.cachedMsgCount) == 0 {
+		if pr.pq.IsDroppd() {
+			return
+		}
+		if !pr.pq.IsLock() {
+			return
+		}
+		if pr.pq.isLockExpired() {
+			return
+		}
+
 		rlog.Info("request msgCount is 0", map[string]interface{}{
 			rlog.LogKeyPullRequest: pr.String(),
 		})
