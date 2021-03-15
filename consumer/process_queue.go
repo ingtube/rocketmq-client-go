@@ -334,8 +334,8 @@ func (pq *processQueue) MaxOrderlyCache() int64 {
 func (pq *processQueue) clear() {
 	pq.mutex.Lock()
 	pq.msgCache.Clear()
-	pq.cachedMsgCount = 0
-	pq.cachedMsgSize = 0
+	atomic.StoreInt64(&pq.cachedMsgCount, 0)
+	atomic.StoreInt64(&pq.cachedMsgSize, 0)
 	pq.queueOffsetMax = 0
 }
 
@@ -348,10 +348,10 @@ func (pq *processQueue) commit() int64 {
 	if iter != nil {
 		offset = iter.(int64)
 	}
-	pq.cachedMsgCount -= int64(pq.consumingMsgOrderlyTreeMap.Size())
+	atomic.AddInt64(&pq.cachedMsgCount, -int64(pq.consumingMsgOrderlyTreeMap.Size()))
 	pq.consumingMsgOrderlyTreeMap.Each(func(key interface{}, value interface{}) {
 		msg := value.(*primitive.MessageExt)
-		pq.cachedMsgSize -= int64(len(msg.Body))
+		atomic.AddInt64(&pq.cachedMsgSize, -int64(len(msg.Body)))
 	})
 	pq.consumingMsgOrderlyTreeMap.Clear()
 	return offset + 1
