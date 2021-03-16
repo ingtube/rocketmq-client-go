@@ -98,11 +98,16 @@ func (pq *processQueue) putMessage(messages ...*primitive.MessageExt) {
 		if found {
 			continue
 		}
+		// put msg first, make sure no message lost
+		// https://github.com/apache/rocketmq-client-go/issues/618
+		pq.msgCache.Put(msg.QueueOffset, msg)
+
+		// make sure cachedMsgCount not big than real
+		// https://github.com/apache/rocketmq-client-go/issues/615
 		_, found = pq.consumingMsgOrderlyTreeMap.Get(msg.QueueOffset)
 		if found {
 			continue
 		}
-		pq.msgCache.Put(msg.QueueOffset, msg)
 		validMessageCount++
 		pq.queueOffsetMax = msg.QueueOffset
 		atomic.AddInt64(&pq.cachedMsgSize, int64(len(msg.Body)))
@@ -329,8 +334,8 @@ func (pq *processQueue) MaxOrderlyCache() int64 {
 func (pq *processQueue) clear() {
 	pq.mutex.Lock()
 	pq.msgCache.Clear()
-	pq.cachedMsgCount = 0
-	pq.cachedMsgSize = 0
+	atomic.StoreInt64(&pq.cachedMsgCount, 0)
+	atomic.StoreInt64(&pq.cachedMsgSize, 0)
 	pq.queueOffsetMax = 0
 }
 
@@ -343,10 +348,10 @@ func (pq *processQueue) commit() int64 {
 	if iter != nil {
 		offset = iter.(int64)
 	}
-	pq.cachedMsgCount -= int64(pq.consumingMsgOrderlyTreeMap.Size())
+	atomic.AddInt64(&pq.cachedMsgCount, -int64(pq.consumingMsgOrderlyTreeMap.Size()))
 	pq.consumingMsgOrderlyTreeMap.Each(func(key interface{}, value interface{}) {
 		msg := value.(*primitive.MessageExt)
-		pq.cachedMsgSize -= int64(len(msg.Body))
+		atomic.AddInt64(&pq.cachedMsgSize, -int64(len(msg.Body)))
 	})
 	pq.consumingMsgOrderlyTreeMap.Clear()
 	return offset + 1

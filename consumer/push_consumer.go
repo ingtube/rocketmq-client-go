@@ -455,15 +455,12 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 	})
 	var sleepTime time.Duration
 	pq := request.pq
-	var done = make(chan struct{})
-	defer close(done)
-
 	go primitive.WithRecover(func() {
 		for {
 			select {
-			case <-done:
-				rlog.Debug("pullMessage quited, so stop task", map[string]interface{}{
-					rlog.LogKeyPullRequest: request.String(),
+			case <-pc.done:
+				rlog.Info("push consumer close pullMessage.", map[string]interface{}{
+					rlog.LogKeyConsumerGroup: pc.consumerGroup,
 				})
 				return
 			default:
@@ -519,7 +516,7 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 		}
 
 		cachedMessageSizeInMiB := int(pq.cachedMsgSize / Mb)
-		if int64(pq.msgCache.Size()) > pc.option.PullThresholdForQueue {
+		if atomic.LoadInt64(&pq.cachedMsgCount) > pc.option.PullThresholdForQueue {
 			if pc.queueFlowControlTimes%1000 == 0 {
 				rlog.Warning("the cached message count exceeds the threshold, so do flow control", map[string]interface{}{
 					"PullThresholdForQueue": pc.option.PullThresholdForQueue,
@@ -529,6 +526,23 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 					"size(MiB)":             cachedMessageSizeInMiB,
 					"flowControlTimes":      pc.queueFlowControlTimes,
 					rlog.LogKeyPullRequest:  request.String(),
+				})
+			}
+			pc.queueFlowControlTimes++
+			sleepTime = _PullDelayTimeWhenFlowControl
+			goto NEXT
+		}
+
+		if cachedMessageSizeInMiB > pc.option.PullThresholdSizeForQueue {
+			if pc.queueFlowControlTimes%1000 == 0 {
+				rlog.Warning("the cached message size exceeds the threshold, so do flow control", map[string]interface{}{
+					"PullThresholdSizeForQueue": pc.option.PullThresholdSizeForQueue,
+					"minOffset":                 pq.Min(),
+					"maxOffset":                 pq.Max(),
+					"count":                     pq.cachedMsgCount,
+					"size(MiB)":                 cachedMessageSizeInMiB,
+					"flowControlTimes":          pc.queueFlowControlTimes,
+					rlog.LogKeyPullRequest:      request.String(),
 				})
 			}
 			pc.queueFlowControlTimes++
@@ -686,7 +700,13 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 		case primitive.PullNoNewMsg:
 			rlog.Debug(fmt.Sprintf("Topic: %s, QueueId: %d no more msg, current offset: %d, next offset: %d",
 				request.mq.Topic, request.mq.QueueId, pullRequest.QueueOffset, result.NextBeginOffset), nil)
+
+			request.nextOffset = result.NextBeginOffset
+			pc.correctTagsOffset(request)
 		case primitive.PullNoMsgMatched:
+			rlog.Debug(fmt.Sprintf("Topic: %s, QueueId: %d no msg matched, current offset: %d, next offset: %d",
+				request.mq.Topic, request.mq.QueueId, pullRequest.QueueOffset, result.NextBeginOffset), nil)
+
 			request.nextOffset = result.NextBeginOffset
 			pc.correctTagsOffset(request)
 		case primitive.PullOffsetIllegal:
@@ -709,7 +729,22 @@ func (pc *pushConsumer) pullMessage(request *PullRequest) {
 }
 
 func (pc *pushConsumer) correctTagsOffset(pr *PullRequest) {
-	// TODO
+	if atomic.LoadInt64(&pr.pq.cachedMsgCount) == 0 {
+		if pr.pq.IsDroppd() {
+			return
+		}
+		if !pr.pq.IsLock() {
+			return
+		}
+		if pr.pq.isLockExpired() {
+			return
+		}
+
+		rlog.Info("request msgCount is 0", map[string]interface{}{
+			rlog.LogKeyPullRequest: pr.String(),
+		})
+		pc.storage.update(pr.mq, pr.nextOffset, true)
+	}
 }
 
 func (pc *pushConsumer) sendMessageBack(brokerName string, msg *primitive.MessageExt, delayLevel int) bool {
@@ -721,6 +756,13 @@ func (pc *pushConsumer) sendMessageBack(brokerName string, msg *primitive.Messag
 	}
 	_, err := pc.client.InvokeSync(context.Background(), brokerAddr, pc.buildSendBackRequest(msg, delayLevel), 3*time.Second)
 	if err != nil {
+		rlog.Error("send message back err", map[string]interface{}{
+			rlog.LogKeyUnderlayError: err.Error(),
+			rlog.LogKeyMessageQueue:  msg.Queue.String(),
+			rlog.LogKeyConsumerGroup: pc.consumerGroup,
+			"brokerAddr":             brokerAddr,
+			"msgID":                  msg.MsgId,
+		})
 		return false
 	}
 	return true
